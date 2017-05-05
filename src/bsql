@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+set -euo pipefail # defensive programming
+set -f # no expansion
+
+readonly BSQL_DIR="${BASH_SOURCE%/*}"
+
+main() {
+    # exit quietly if no arguments
+    if [ "$#" -eq 0 ]; then
+        exit 0
+    fi
+
+    # display help page if -h or --help provided
+    if [[ "$1" = -h ]] || [[ "${1,,}" = --help ]]; then
+        __display_usage
+    fi
+
+    # parse other arguments
+    local output_type="csv"
+    local OPTIND
+    local OPTARG
+    while getopts ":o:" opt; do
+        case "$opt" in
+        o)
+            output_type="${OPTARG,,}"
+            if [[ "$output_type" != "csv" ]] && [[ "$output_type" != "tsv" ]] &&
+               [[ "$output_type" != "html" ]]; then
+                echo "Output type *$output_type* not supported" >&2
+                exit 1
+            fi
+        ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            exit 1
+        ;;
+        :)
+            echo "Option -$OPTARG requires an argument." >&2
+            exit 1
+        ;;
+        esac
+    done
+    shift "$((OPTIND-1))"
+
+    # execute select command if the right syntax
+    readonly SELECT_REGEX="^\s*select\s+(.+)\s+from\s+(\S+)\s*$"
+    if [[ "$#" -eq 1 ]] && [[ "${1,,}" =~ $SELECT_REGEX ]]; then
+        local columns=${BASH_REMATCH[1]}
+        local filename=${BASH_REMATCH[2]}
+
+        source "${BSQL_DIR}/select_command.sh"
+        select_command "$columns" "$filename" "$output_type"
+        exit 0
+    fi
+
+    echo "Unrecognized syntax" >&2
+    exit 1
+}
+
+__display_usage() {
+    cat << USAGE_END
+usage: bsql [-h] [-o FORMAT] "select COLUMNS from FILE"
+
+Provides a SQL-like syntax for reading and transforming
+CSV (Comma-Separated Value) files to other formats.
+
+Currently only a small subset of SQL commands is
+available:
+   - SELECT command without filtering -
+     prints all transformed data to standard
+     output
+
+COLUMNS - a comma-delimited list of columns which
+          can be found in the FILE; can be also *
+          (a star) which is a substitute for all
+          available columns, listed in the original
+          order
+
+FILE - a relative or absolute path to a CSV file;
+       files with quoted values are not supported
+
+optional arguments:
+  -h, --help    display this help text and exit
+  -o FORMAT     switch output format to FORMAT,
+                which can be: CSV, TSV or HTML;
+                if no FORMAT specified, CSV is used
+
+examples:
+
+$ bsql "select from,distance from small.csv"
+from,distance
+Warszawa,294
+Krakow,215
+
+$ bsql -o html "select * from small.csv"
+<table>
+<tr>
+    <th>from</th>
+    <th>to city</th>
+    <th>distance</th>
+</tr>
+<tr>
+    <td>Warszawa</td>
+    <td>Krakow</td>
+    <td>294</td>
+</tr>
+<tr>
+    <td>Krakow</td>
+    <td>Stalowa Wola</td>
+    <td>215</td>
+</tr>
+</table>
+USAGE_END
+    exit 0
+}
+
+main "$@"
